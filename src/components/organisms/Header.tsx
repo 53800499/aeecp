@@ -2,7 +2,8 @@
 
 "use client";
 
-import { Search, Bell, User } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, Bell, User, LogOut } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -15,9 +16,27 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import { useSidebarStore } from "@/store/sidebarStore";
+import { useAuthStore } from "@/store/authStore";
 
 export function Header() {
+  const router = useRouter();
   const { toggleSidebar } = useSidebarStore();
+  const { user, logout } = useAuthStore();
+
+  const handleLogout = async () => {
+    await logout();
+    router.push("/login");
+  };
+
+  const getUserInitials = () => {
+    if (!user?.name) return "U";
+    return user.name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  };
   return (
     <header className="sticky top-0 z-40 bg-white border-b border-gray-200">
       <div className="flex items-center justify-between px-6 py-4">
@@ -52,19 +71,42 @@ export function Header() {
               <Button variant="ghost" className="flex items-center gap-2">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback className="bg-primary text-white">
-                    <User className="h-4 w-4" />
+                    {user?.name ? (
+                      getUserInitials()
+                    ) : (
+                      <User className="h-4 w-4" />
+                    )}
                   </AvatarFallback>
                 </Avatar>
-                <span className="text-xs md:text-sm font-medium">Admin</span>
+                <span className="text-xs md:text-sm font-medium hidden md:inline">
+                  {user?.name || "Utilisateur"}
+                </span>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>Mon compte</DropdownMenuLabel>
+              <DropdownMenuLabel>
+                <div className="flex flex-col">
+                  <span className="font-semibold">
+                    {user?.name || "Utilisateur"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {user?.email}
+                  </span>
+                </div>
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>Profil</DropdownMenuItem>
-              <DropdownMenuItem>Paramètres</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/parametres")}>
+                <User className="h-4 w-4 mr-2" />
+                Profil
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push("/parametres")}>
+                Paramètres
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-red-600">
+              <DropdownMenuItem
+                onClick={handleLogout}
+                className="text-red-600 cursor-pointer">
+                <LogOut className="h-4 w-4 mr-2" />
                 Déconnexion
               </DropdownMenuItem>
             </DropdownMenuContent>
