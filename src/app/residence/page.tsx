@@ -2,7 +2,7 @@
 
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,20 +38,20 @@ import {
   Eye,
   Users,
   Home,
-  MapPin
+  MapPin,
+  Loader2
 } from "lucide-react";
-import {
-  mockQuarters,
-  mockBuildings,
-  mockRooms,
-  mockRoomOccupations,
-  mockRentPayments,
-  mockStudents,
-  mockStudentUsers
-} from "@/lib/mockData";
+import { ResidenceApiService } from "@/services/residenceApi";
+import { StudentApiService } from "@/services/studentApi";
 import {
   RoomStatus,
-  Room
+  type Room,
+  type Quarter,
+  type Building,
+  type RoomOccupation,
+  type RentPayment,
+  type Student,
+  type User
 } from "@/types";
 import { CURRENCY } from "@/lib/constants";
 
@@ -60,12 +60,18 @@ function AddStudentToRoomModal({
   room,
   open,
   onClose,
-  onAdd
+  onAdd,
+  occupations,
+  students,
+  users
 }: {
   room: Room | null;
   open: boolean;
   onClose: () => void;
   onAdd: (studentId: string, monthlyRent: number, startDate: Date) => void;
+  occupations: RoomOccupation[];
+  students: Student[];
+  users: User[];
 }) {
   const [selectedStudent, setSelectedStudent] = useState<string>("");
   const [monthlyRent, setMonthlyRent] = useState<number>(
@@ -77,13 +83,13 @@ function AddStudentToRoomModal({
 
   const availableStudents = useMemo(() => {
     // Étudiants qui n&apos;ont pas déjà une occupation active
-    const occupiedStudentIds = mockRoomOccupations
-      .filter((occ) => occ.isActive)
-      .map((occ) => occ.studentId);
-    return mockStudents.filter(
-      (student) => !occupiedStudentIds.includes(student.id)
+    const occupiedStudentIds = occupations
+      .filter((occ: RoomOccupation) => occ.isActive)
+      .map((occ: RoomOccupation) => occ.studentId);
+    return students.filter(
+      (student: Student) => !occupiedStudentIds.includes(student.id)
     );
-  }, []);
+  }, [occupations, students]);
 
   const handleSubmit = () => {
     if (selectedStudent && monthlyRent > 0 && startDate) {
@@ -111,10 +117,8 @@ function AddStudentToRoomModal({
                 <SelectValue placeholder="Sélectionner un étudiant" />
               </SelectTrigger>
               <SelectContent>
-                {availableStudents.map((student) => {
-                  const user = mockStudentUsers.find(
-                    (u) => u.id === student.userId
-                  );
+                {availableStudents.map((student: Student) => {
+                  const user = users.find((u: User) => u.id === student.userId);
                   return (
                     <SelectItem key={student.id} value={student.id}>
                       {user?.name} - {student.matricule}
@@ -157,14 +161,20 @@ function AddStudentToRoomModal({
 }
 
 export default function ResidencePage() {
-  const [quarters] = useState(mockQuarters);
-  const [buildings] = useState(mockBuildings);
-  const [rooms] = useState(mockRooms);
-  const [occupations] = useState(mockRoomOccupations);
-  const [payments] = useState(mockRentPayments);
-  const [students] = useState(mockStudents);
-  const [users] = useState(mockStudentUsers);
+  // États pour les données
+  const [quarters, setQuarters] = useState<Quarter[]>([]);
+  const [buildings, setBuildings] = useState<Building[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [occupations, setOccupations] = useState<RoomOccupation[]>([]);
+  const [payments, setPayments] = useState<RentPayment[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
 
+  // États pour le chargement et les erreurs
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // États pour les filtres et l'interface
   const [searchQuery, setSearchQuery] = useState("");
   const [quarterFilter, setQuarterFilter] = useState<string>("all");
   const [buildingFilter, setBuildingFilter] = useState<string>("all");
@@ -172,6 +182,54 @@ export default function ResidencePage() {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [isAddStudentModalOpen, setIsAddStudentModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("rooms");
+
+  // Charger les données depuis l'API
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+
+        // Charger toutes les données en parallèle
+        const [
+          quartersData,
+          buildingsData,
+          roomsData,
+          occupationsData,
+          paymentsData,
+          studentsData,
+          usersData
+        ] = await Promise.all([
+          ResidenceApiService.getQuarters(),
+          ResidenceApiService.getBuildings(),
+          ResidenceApiService.getRooms(),
+          ResidenceApiService.getOccupations(),
+          ResidenceApiService.getRentPayments(),
+          StudentApiService.getStudents(),
+          StudentApiService.getUsers()
+        ]);
+
+        setQuarters(quartersData);
+        setBuildings(buildingsData);
+        setRooms(roomsData);
+        setOccupations(occupationsData);
+        setPayments(paymentsData);
+        setStudents(studentsData);
+        setUsers(usersData);
+      } catch (err) {
+        console.error("Erreur lors du chargement des données:", err);
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Une erreur est survenue lors du chargement des données"
+        );
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
+  }, []);
 
   // Calculer le nombre d'occupants par chambre
   const roomOccupancy = useMemo(() => {
@@ -280,17 +338,83 @@ export default function ResidencePage() {
     return <Badge variant={variants[status]}>{labels[status]}</Badge>;
   };
 
-  const handleAddStudent = (
+  const handleAddStudent = async (
     studentId: string,
     monthlyRent: number,
     startDate: Date
   ) => {
-    // Ici, vous pouvez implémenter la logique d'ajout
-    console.log("Ajout étudiant:", { studentId, monthlyRent, startDate });
-    alert(
-      `Étudiant ajouté à la chambre ${selectedRoom?.roomNumber} avec un loyer de ${monthlyRent.toLocaleString()} ${CURRENCY}`
-    );
+    if (!selectedRoom) return;
+
+    try {
+      // Créer l'occupation via l'API
+      const newOccupation = await ResidenceApiService.createOccupation({
+        roomId: selectedRoom.id,
+        studentId,
+        startDate,
+        monthlyRent,
+        isActive: true
+      });
+
+      // Mettre à jour la liste des occupations
+      setOccupations((prev) => [...prev, newOccupation]);
+
+      // Mettre à jour le statut de la chambre si nécessaire
+      if (selectedRoom.status === RoomStatus.AVAILABLE) {
+        await ResidenceApiService.updateRoom(selectedRoom.id, {
+          status: RoomStatus.OCCUPIED
+        });
+        setRooms((prev) =>
+          prev.map((r) =>
+            r.id === selectedRoom.id ? { ...r, status: RoomStatus.OCCUPIED } : r
+          )
+        );
+      }
+
+      alert(
+        `Étudiant ajouté à la chambre ${
+          selectedRoom.roomNumber
+        } avec un loyer de ${monthlyRent.toLocaleString()} ${CURRENCY}`
+      );
+    } catch (err) {
+      console.error("Erreur lors de l'ajout de l'étudiant:", err);
+      alert(
+        err instanceof Error
+          ? err.message
+          : "Une erreur est survenue lors de l'ajout de l'étudiant"
+      );
+    }
   };
+
+  // Afficher un état de chargement
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <p className="text-muted-foreground">Chargement des données...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Afficher une erreur
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle className="text-destructive">Erreur</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={() => window.location.reload()} variant="outline">
+              Réessayer
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -401,9 +525,7 @@ export default function ResidencePage() {
                     className="pl-10"
                   />
                 </div>
-                <Select
-                  value={quarterFilter}
-                  onValueChange={setQuarterFilter}>
+                <Select value={quarterFilter} onValueChange={setQuarterFilter}>
                   <SelectTrigger className="w-48">
                     <MapPin className="h-4 w-4 mr-2" />
                     <SelectValue placeholder="Quartier" />
@@ -499,7 +621,9 @@ export default function ResidencePage() {
                         <TableCell>
                           {item.room.monthlyRent.toLocaleString()} {CURRENCY}
                         </TableCell>
-                        <TableCell>{getStatusBadge(item.room.status)}</TableCell>
+                        <TableCell>
+                          {getStatusBadge(item.room.status)}
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             {item.room.status === RoomStatus.AVAILABLE &&
@@ -696,6 +820,9 @@ export default function ResidencePage() {
           setSelectedRoom(null);
         }}
         onAdd={handleAddStudent}
+        occupations={occupations}
+        students={students}
+        users={users}
       />
     </div>
   );
